@@ -1,0 +1,183 @@
+---
+title: "Video Games Sales Project"
+author: "Aadyant Khatri"
+date: "10/03/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+if(!require(ggplot2)) install.packages("ggplot2", repos = "http://cran.us.r-project.org")
+if(!require(broom)) install.packages("broom", repos = "http://cran.us.r-project.org")
+if(!require(randomForest)) install.packages("randomForest", repos = "http://cran.us.r-project.org")
+
+library(tidyverse)
+library(caret)
+library(data.table)
+library(ggplot2)
+library(broom)
+library(randomForest)
+
+setwd("D:/R files/My Own Project")
+data <- read.csv("vgsales.csv")
+
+
+######################################################
+# Keeping only relevant columns and removing rows having NA values
+data <- data[c('Platform', 'Year', 'Genre', 'Publisher', 'Global_Sales')] %>% na.omit()
+
+# Since data size is too large, only 50% will be used
+set.seed(1, sample.kind="Rounding")
+data_to_use_index <- createDataPartition(y = data$Global_Sales, times = 1, p = 0.5, list = FALSE, )
+data_to_use <- data[data_to_use_index,]
+
+# Mutating Platform, Genre and Publisher columns as categorical data
+data_to_use <- data_to_use %>% mutate(Platform = factor(Platform), Genre = factor(Genre), Publisher = factor(Publisher))
+
+# Test set will be 30% of data
+set.seed(1, sample.kind="Rounding")
+test_index <- createDataPartition(y = data_to_use$Global_Sales, times = 1, p = 0.3, list = FALSE, )
+train_set <- data_to_use[-test_index,]
+temp <- data_to_use[test_index,]
+
+
+# Making sure Platform, Genre and Publisher in test set are also in train set
+test_set <- temp %>% 
+  semi_join(train_set, by = "Platform") %>%
+  semi_join(train_set, by = "Genre") %>%
+  semi_join(train_set, by = "Publisher")
+
+# Add rows removed from test set back into train set
+removed <- anti_join(temp, test_set)
+train_set <- rbind(train_set, removed)
+
+
+######################################################
+
+#Creating and training a k-Nearest Neighbors model
+fit_knn <- train(Genre ~ .,  method = "knn", tuneGrid = data.frame(k = seq(39, 42, 1)), data = train_set)
+
+prediction_knn <- predict(fit_knn, newdata = test_set)
+
+accuracy_knn <- mean(prediction_knn == test_set$Genre)
+
+accuracies <- data_frame(Method = "kNN Model", Accuracy = accuracy_knn)
+
+######################################################
+
+#Creating and training a Decision Tree model
+fit_tree <- train(Genre ~ ., method = "rpart", tuneGrid = data.frame(cp = seq(0, 0.01, len = 30)), data = train_set)
+
+prediction_tree <- predict(fit_tree, newdata = test_set)
+
+accuracy_tree <- mean(prediction_tree == test_set$Genre)
+
+accuracies <- bind_rows(accuracies,
+                          data_frame(Method="Decision Tree Model",
+                                     Accuracy = accuracy_tree ))
+
+######################################################
+
+#Creating and training a Random Forest model
+fit_rf <- train(Genre ~ .,
+                    method = "Rborist",
+                    tuneGrid = data.frame(predFixed = 2, minNode = c(2, 10)),
+                    data = train_set)
+
+prediction_rf <- predict(fit_rf, newdata = test_set)
+
+accuracy_rf <- mean(prediction_rf == test_set$Genre)
+
+accuracies <- bind_rows(accuracies,
+                        data_frame(Method="Random Forest Model",
+                                   Accuracy = accuracy_rf ))
+
+```
+
+## Overview
+
+This project is aimed at predicting the genre of video game given the year of its release, its platform, its publisher and the total sales it had globally. If I am able to do so successfully, I would be able to conclude that their is a significant relation between the predictors and the genre.
+
+For this project, **Video Game Sales** data set available on Kaggle was used (https://www.kaggle.com/gregorut/videogamesales). This data set contains sales data for more than 16,500 games. For each of the games, the year of its release, its platform, its publisher and its sales in North America, Europe, Japan and globally are provided.
+
+I have tried tackling the problem using several machine learning techniques such as **k-nearest neighbors**, **decision trees** and **random forest**. 
+
+## Visualizing Data
+In this figure, we can see the number of sales by different publishers for each of the genres -
+
+```{r platform figure, echo=FALSE, out.width="50%", fig.align = 'center'}
+data_to_use %>% ggplot(aes(Genre, fill = Platform)) + geom_bar(position = position_dodge())
+```
+
+In this figure, we can see the global sales in each of the genres -
+
+```{r sales figure, echo=FALSE, out.width="50%", fig.align = 'center'}
+data_to_use %>% group_by(Genre) %>% summarise(Sales = sum(Global_Sales)) %>% slice_max(order_by =  Sales, n = 10) %>% 
+  ggplot(aes(reorder(Genre, -Sales), Sales)) + geom_col() +  scale_x_discrete(guide = guide_axis(n.dodge = 2))
+```
+## Methodology
+
+### Model - 1  
+K-nearest neighbors (KNN) tries to predict the correct class for the test data by calculating the distance between the test data and all the training points. Then select the K number of points which is closet to the test data.  
+In this method, tune grid was used to find the optimum value of the k.  
+
+```{r knn effect code, eval=FALSE}
+fit_knn <- train(Genre ~ .,  method = "knn", tuneGrid = data.frame(k = seq(39, 42, 1)), data = train_set)
+
+prediction_knn <- predict(fit_knn, newdata = test_set)
+
+accuracy_knn <- mean(prediction_knn == test_set$Genre)
+```
+This model gave an accuracy = `r accuracy_knn`
+
+
+### Model - 2  
+Decision Trees are a type of supervised machine learning where the data is continuously split according to a certain parameter.  
+In this method, tune grid was used to find the optimum value of the complexity hyper parameter.
+
+```{r tree effect code, eval=FALSE}
+fit_tree <- train(Genre ~ ., method = "rpart", tuneGrid = data.frame(cp = seq(0, 0.01, len = 30)), data = train_set)
+
+prediction_tree <- predict(fit_tree, newdata = test_set)
+
+accuracy_tree <- mean(prediction_tree == test_set$Genre)
+```
+
+This method gave accuracy = `r accuracy_tree`
+
+
+### Model - 3  
+Random forest is a machine learning algorithm that builds decision trees on different samples and takes their majority vote for classification and average in case of regression.
+
+```{r rf code, eval=FALSE}
+fit_rf <- train(Genre ~ .,
+                    method = "Rborist",
+                    tuneGrid = data.frame(predFixed = 2, minNode = c(2, 10)),
+                    data = train_set)
+
+prediction_rf <- predict(fit_rf, newdata = test_set)
+
+accuracy_rf <- mean(prediction_rf == test_set$Genre)
+```
+
+Model 3 resulted in accuracy = `r accuracy_rf`
+
+
+## Results
+
+The accuracies obtained with each model have been compiled in the table below.
+
+```{r models table, echo=FALSE}
+accuracies %>% knitr::kable()
+```
+
+
+## Conclusion
+
+I was able to create a model which could predict the genre of video games using several sales parameters with a decent accuracy.
+
+This project helps in concluding that video games of certain genres, by certain publishers and on certain platforms are preferred and enjoyed more by users than others.
+
+However, a key factor that limited the accuracies of my models is low computation power. On a machine having higher computational capabilities, much more robust models with even better hyper-parameters can be created.
