@@ -12,7 +12,6 @@ library(ggplot2)
 library(broom)
 library(randomForest)
 
-setwd("D:/R files/My Own Project")
 data <- read.csv("vgsales.csv")
 
 colnames(data)
